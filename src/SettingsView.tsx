@@ -11,12 +11,12 @@ interface Props {
   entries: LogEntry[];
   cloud: SupabaseConfig | null;
   lastSyncedAt: string | null;
+  syncing: boolean;
   onSaveSettings: (s: Settings) => Promise<void>;
   onSaveCloud: (cfg: SupabaseConfig | null) => Promise<void>;
   onSyncNow: () => Promise<void>;
   onDataChanged: () => Promise<void>;
   onBackupDone: () => void;
-  syncing: boolean;
 }
 
 const MAPPABLE: MappingField[] = ['kind', 'date', 'odometer', 'units', 'cost', 'startSoc', 'endSoc', 'chargerType', 'notes'];
@@ -24,16 +24,25 @@ const MAPPABLE: MappingField[] = ['kind', 'date', 'odometer', 'units', 'cost', '
 export default function SettingsView(props: Props) {
   const { settings, entries, cloud, lastSyncedAt, syncing } = props;
   return (
-    <div className="content">
-      <VehicleForm settings={settings} onSave={props.onSaveSettings} />
-      <CloudCard cloud={cloud} lastSyncedAt={lastSyncedAt} syncing={syncing} onSave={props.onSaveCloud} onSyncNow={props.onSyncNow} />
-      <BackupCard entries={entries} settings={settings} onBackupDone={props.onBackupDone} />
-      <ImportCard entries={entries} onImported={props.onDataChanged} />
-    </div>
+    <>
+      <VehicleGroup settings={settings} onSave={props.onSaveSettings} />
+      <CloudGroup cloud={cloud} lastSyncedAt={lastSyncedAt} syncing={syncing} onSave={props.onSaveCloud} onSyncNow={props.onSyncNow} />
+      <DataGroup settings={settings} entries={entries} onBackupDone={props.onBackupDone} onImported={props.onDataChanged} />
+      <p className="settings-foot">EV Ledger · stored on this device and in your own Supabase project. Add to Home Screen for full-screen use.</p>
+    </>
   );
 }
 
-function VehicleForm({ settings, onSave }: { settings: Settings; onSave: (s: Settings) => Promise<void> }) {
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="settings-group">
+      <h3>{title}</h3>
+      <div className="settings-card">{children}</div>
+    </section>
+  );
+}
+
+function VehicleGroup({ settings, onSave }: { settings: Settings; onSave: (s: Settings) => Promise<void> }) {
   const [form, setForm] = useState({
     modelName: settings.modelName,
     batteryKwh: String(settings.batteryKwh),
@@ -54,55 +63,50 @@ function VehicleForm({ settings, onSave }: { settings: Settings; onSave: (s: Set
       benchmarkMileage: Number(form.benchmarkMileage),
       benchmarkPetrolPrice: Number(form.benchmarkPetrolPrice)
     };
-    if (Object.values(nums).some((n) => !Number.isFinite(n) || n <= 0)) {
-      return setErr('All numbers must be positive.');
-    }
+    if (Object.values(nums).some((n) => !Number.isFinite(n) || n <= 0)) return setErr('All numbers must be positive.');
     await onSave({ modelName: form.modelName.trim(), benchmarkCar: form.benchmarkCar.trim(), ...nums });
-    setMsg('Saved. Dashboard recalculated from your raw logs.');
+    setMsg('Saved. Every figure is recalculated from your raw logs.');
   }
 
-  return (
-    <div className="card">
-      <h2>Vehicle & benchmark</h2>
-      <div className="field">
-        <label>EV model</label>
-        <input value={form.modelName} onChange={(e) => setForm({ ...form, modelName: e.target.value })} />
-      </div>
-      <div className="row2">
-        <div className="field">
-          <label>Usable battery (kWh)</label>
-          <input inputMode="decimal" value={form.batteryKwh} onChange={(e) => setForm({ ...form, batteryKwh: e.target.value })} />
-        </div>
-        <div className="field">
-          <label>Delivery odometer (km)</label>
-          <input inputMode="decimal" value={form.deliveryBaselineKm} onChange={(e) => setForm({ ...form, deliveryBaselineKm: e.target.value })} />
-        </div>
-      </div>
-      <div className="field">
-        <label>Benchmark car</label>
-        <input value={form.benchmarkCar} onChange={(e) => setForm({ ...form, benchmarkCar: e.target.value })} />
-      </div>
-      <div className="row2">
-        <div className="field">
-          <label>Benchmark mileage (km/l)</label>
-          <input inputMode="decimal" value={form.benchmarkMileage} onChange={(e) => setForm({ ...form, benchmarkMileage: e.target.value })} />
-        </div>
-        <div className="field">
-          <label>Petrol price (₹/l)</label>
-          <input inputMode="decimal" value={form.benchmarkPetrolPrice} onChange={(e) => setForm({ ...form, benchmarkPetrolPrice: e.target.value })} />
-        </div>
-      </div>
-      <span className="muted">Changes apply to all history. Trip distances and efficiencies are recalculated from the raw logs each time.</span>
-      {err && <div className="error">{err}</div>}
-      {msg && <div className="ok-text">{msg}</div>}
-      <div style={{ marginTop: 12 }}>
-        <button className="btn" onClick={save}>Save settings</button>
-      </div>
+  const row = (label: string, key: keyof typeof form, inputMode: 'text' | 'decimal' = 'decimal') => (
+    <div className="settings-row">
+      <span className="row-label">{label}</span>
+      <input
+        inputMode={inputMode}
+        value={form[key]}
+        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+      />
     </div>
+  );
+
+  return (
+    <>
+      <Group title="Vehicle">
+        <div className="settings-row">
+          <span className="row-label">EV model</span>
+          <input type="text" value={form.modelName} onChange={(e) => setForm({ ...form, modelName: e.target.value })} />
+        </div>
+        {row('Battery capacity (kWh)', 'batteryKwh')}
+        {row('Delivery odometer (km)', 'deliveryBaselineKm')}
+      </Group>
+      <Group title={`Petrol comparison · ${settings.benchmarkCar}`}>
+        <div className="settings-row">
+          <span className="row-label">Benchmark car</span>
+          <input type="text" value={form.benchmarkCar} onChange={(e) => setForm({ ...form, benchmarkCar: e.target.value })} />
+        </div>
+        {row('Mileage (km/l)', 'benchmarkMileage')}
+        {row('Petrol price (₹/l)', 'benchmarkPetrolPrice')}
+        <div className="settings-block">
+          <button className="btn" onClick={save}>Save changes</button>
+          {err && <div className="error">{err}</div>}
+          {msg && <div className="ok-text">{msg}</div>}
+        </div>
+      </Group>
+    </>
   );
 }
 
-function CloudCard({
+function CloudGroup({
   cloud,
   lastSyncedAt,
   syncing,
@@ -142,21 +146,26 @@ function CloudCard({
   }
 
   async function disconnect() {
-    if (!window.confirm('Disconnect cloud sync? Data stays on this phone.')) return;
+    if (!window.confirm('Disconnect cloud sync? Data stays on this device.')) return;
     await onSave(null);
     setUrl('');
     setKey('');
-    setMsg('Disconnected. Data stays on this phone.');
+    setMsg('Disconnected. Data stays on this device.');
   }
 
-  return (
-    <div className="card">
-      <h2>Cloud sync (your Supabase)</h2>
-      {cloud ? (
-        <>
-          <div className="muted" style={{ marginBottom: 10 }}>
-            Connected to {cloud.url.replace('https://', '')}.{' '}
-            {lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleString('en-IN')}.` : 'Not synced yet.'}
+  if (cloud) {
+    return (
+      <Group title="Cloud sync">
+        <div className="settings-action-row">
+          <span className="row-label">
+            Connected<br />
+            <span className="muted">{cloud.url.replace('https://', '')}</span>
+          </span>
+          <span className="pill ac">Live</span>
+        </div>
+        <div className="settings-block">
+          <div className="muted" style={{ marginBottom: 12 }}>
+            {lastSyncedAt ? `Last synced ${new Date(lastSyncedAt).toLocaleString('en-IN')}` : 'Not synced yet'}
           </div>
           <div className="btn-row">
             <button className="btn" onClick={() => onSyncNow()} disabled={syncing}>
@@ -164,29 +173,47 @@ function CloudCard({
             </button>
             <button className="btn secondary" onClick={disconnect}>Disconnect</button>
           </div>
-        </>
-      ) : (
-        <>
-          <div className="field">
-            <label>Project URL</label>
-            <input value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://xxxxx.supabase.co" autoCapitalize="off" autoCorrect="off" />
-          </div>
-          <div className="field">
-            <label>Anon public key</label>
-            <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="eyJ… or sb_publishable_…" autoCapitalize="off" autoCorrect="off" />
-            <span className="hint">Use the anon/publishable key only. Never paste the service-role key.</span>
-          </div>
+          {msg && <div className="ok-text">{msg}</div>}
+        </div>
+      </Group>
+    );
+  }
+
+  return (
+    <Group title="Cloud sync">
+      <div className="settings-row">
+        <span className="row-label">Project URL</span>
+        <input type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://xxxx.supabase.co" autoCapitalize="off" autoCorrect="off" />
+      </div>
+      <div className="settings-row">
+        <span className="row-label">Anon key</span>
+        <input value={key} onChange={(e) => setKey(e.target.value)} placeholder="public key" autoCapitalize="off" autoCorrect="off" />
+      </div>
+      <div className="settings-block">
+        <p className="muted">Use the anon public key only. Never paste the service-role key.</p>
+        <div style={{ marginTop: 12 }}>
           <button className="btn" onClick={connect} disabled={busy}>{busy ? 'Connecting…' : 'Connect & sync'}</button>
-        </>
-      )}
-      {err && <div className="error">{err}</div>}
-      {msg && <div className="ok-text">{msg}</div>}
-    </div>
+        </div>
+        {err && <div className="error">{err}</div>}
+        {msg && <div className="ok-text">{msg}</div>}
+      </div>
+    </Group>
   );
 }
 
-function BackupCard({ entries, settings, onBackupDone }: { entries: LogEntry[]; settings: Settings; onBackupDone: () => void }) {
+function DataGroup({
+  settings,
+  entries,
+  onBackupDone,
+  onImported
+}: {
+  settings: Settings;
+  entries: LogEntry[];
+  onBackupDone: () => void;
+  onImported: () => Promise<void>;
+}) {
   const [err, setErr] = useState<string | null>(null);
+
   async function run(fn: () => Promise<void>) {
     setErr(null);
     try {
@@ -196,20 +223,29 @@ function BackupCard({ entries, settings, onBackupDone }: { entries: LogEntry[]; 
       setErr((e as Error).message);
     }
   }
+
   return (
-    <div className="card">
-      <h2>Backup</h2>
-      <div className="btn-row">
-        <button className="btn" onClick={() => run(() => exportCsvFile(entries, settings))}>Export CSV</button>
-        <button className="btn secondary" onClick={() => run(() => exportJsonFile(entries, settings))}>Export JSON</button>
-      </div>
-      <p className="muted">On iPhone, the share sheet lets you save to Files or iCloud Drive. The CSV includes calculated columns.</p>
-      {err && <div className="error">{err}</div>}
-    </div>
+    <>
+      <Group title="Backup">
+        <div className="settings-action-row" onClick={() => run(() => exportCsvFile(entries, settings))}>
+          <span className="row-label">Export as CSV</span>
+          <span className="chev">›</span>
+        </div>
+        <div className="settings-action-row" onClick={() => run(() => exportJsonFile(entries, settings))}>
+          <span className="row-label">Export JSON backup</span>
+          <span className="chev">›</span>
+        </div>
+        <div className="settings-block">
+          <p className="muted">On iPhone the share sheet lets you save to Files or iCloud Drive.</p>
+          {err && <div className="error">{err}</div>}
+        </div>
+      </Group>
+      <ImportGroup entries={entries} onImported={onImported} />
+    </>
   );
 }
 
-function ImportCard({ entries, onImported }: { entries: LogEntry[]; onImported: () => Promise<void> }) {
+function ImportGroup({ entries, onImported }: { entries: LogEntry[]; onImported: () => Promise<void> }) {
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<string[][]>([]);
   const [mapping, setMapping] = useState<ColumnMapping>({});
@@ -236,9 +272,10 @@ function ImportCard({ entries, onImported }: { entries: LogEntry[]; onImported: 
   }
 
   const missing = REQUIRED_FIELDS.filter((f) => mapping[f] === undefined);
-  const preview = headers.length && missing.length === 0
-    ? buildEntries(rows, mapping, entries, { oneRupeeIsFree: oneRupeeFree }, new Date().toISOString())
-    : null;
+  const preview =
+    headers.length && missing.length === 0
+      ? buildEntries(rows, mapping, entries, { oneRupeeIsFree: oneRupeeFree }, new Date().toISOString())
+      : null;
 
   async function commit() {
     if (!preview) return;
@@ -258,68 +295,94 @@ function ImportCard({ entries, onImported }: { entries: LogEntry[]; onImported: 
   }
 
   return (
-    <div className="card">
-      <h2>Import CSV</h2>
-      <div className="field">
-        <label htmlFor="csvfile">Choose a CSV file</label>
-        <input id="csvfile" type="file" accept=".csv,text/csv" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-        {fileName && <span className="hint">{fileName} · {rows.length} data rows</span>}
+    <Group title="Import">
+      <div className="settings-block">
+        <div className="field" style={{ marginBottom: 0 }}>
+          <label htmlFor="csvfile">Choose a CSV file</label>
+          <input
+            id="csvfile"
+            type="file"
+            accept=".csv,text/csv"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) onFile(f);
+            }}
+          />
+          {fileName && <span className="hint">{fileName} · {rows.length} data rows</span>}
+        </div>
       </div>
 
       {headers.length > 0 && (
         <>
-          <h2 style={{ marginTop: 6 }}>Map columns</h2>
-          <div className="table-wrap">
-            <table className="map">
-              <tbody>
-                {MAPPABLE.map((field) => (
-                  <tr key={field}>
-                    <th>{MAPPING_LABELS[field]}{REQUIRED_FIELDS.includes(field) ? ' *' : ''}</th>
-                    <td>
-                      <select
-                        value={mapping[field] ?? ''}
-                        onChange={(e) => {
-                          const v = e.target.value;
-                          setMapping((m) => ({ ...m, [field]: v === '' ? undefined : Number(v) }));
-                        }}
-                      >
-                        <option value="">— not in file —</option>
-                        {headers.map((h, i) => <option key={i} value={i}>{h}</option>)}
-                      </select>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {missing.length > 0 && <div className="error">Map the required columns: {missing.map((m) => MAPPING_LABELS[m]).join(', ')}.</div>}
-          <div className="field" style={{ marginTop: 14 }}>
-            <label style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-              <input type="checkbox" checked={oneRupeeFree} onChange={(e) => setOneRupeeFree(e.target.checked)} style={{ width: 20, height: 20 }} />
-              Treat ₹1 charging sessions as free (store ₹0)
-            </label>
-          </div>
-
-          {preview && (
-            <div className="preview">
-              <div><b>{preview.entries.length}</b> new entries will be imported</div>
-              <div>{preview.duplicates} duplicates skipped (same type, date and odometer already logged)</div>
-              {preview.freeConverted > 0 && <div>{preview.freeConverted} ₹1 sessions stored as ₹0</div>}
-              {preview.rejects.length > 0 && (
-                <div style={{ color: 'var(--warn)' }}>
-                  {preview.rejects.length} rows rejected, e.g. line {preview.rejects[0].line}: {preview.rejects[0].reason}
-                </div>
-              )}
+          <div className="settings-block">
+            <div className="table-wrap">
+              <table className="map">
+                <tbody>
+                  {MAPPABLE.map((field) => (
+                    <tr key={field}>
+                      <th>
+                        {MAPPING_LABELS[field]}
+                        {REQUIRED_FIELDS.includes(field) ? ' *' : ''}
+                      </th>
+                      <td>
+                        <select
+                          value={mapping[field] ?? ''}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setMapping((m) => ({ ...m, [field]: v === '' ? undefined : Number(v) }));
+                          }}
+                        >
+                          <option value="">Not in file</option>
+                          {headers.map((h, i) => (
+                            <option key={i} value={i}>
+                              {h}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          )}
+            {missing.length > 0 && (
+              <div className="error">Map the required columns: {missing.map((m) => MAPPING_LABELS[m]).join(', ')}.</div>
+            )}
+          </div>
 
-          <button className="btn" onClick={commit} disabled={!preview || preview.entries.length === 0 || busy}>
-            {busy ? 'Importing…' : 'Import'}
-          </button>
+          <div className="settings-row">
+            <span className="row-label">Treat ₹1 sessions as free</span>
+            <input type="checkbox" checked={oneRupeeFree} onChange={(e) => setOneRupeeFree(e.target.checked)} style={{ width: 22, height: 22, accentColor: 'var(--mint)' }} />
+          </div>
+
+          <div className="settings-block">
+            {preview && (
+              <div className="preview">
+                <div>
+                  <b>{preview.entries.length}</b> new entries will be imported
+                </div>
+                <div>{preview.duplicates} duplicates skipped</div>
+                {preview.freeConverted > 0 && <div>{preview.freeConverted} ₹1 sessions stored as free (₹0)</div>}
+                {preview.rejects.length > 0 && (
+                  <div style={{ color: 'var(--amber)' }}>
+                    {preview.rejects.length} rows rejected. First: line {preview.rejects[0].line}, {preview.rejects[0].reason}
+                  </div>
+                )}
+              </div>
+            )}
+            <button className="btn" onClick={commit} disabled={!preview || preview.entries.length === 0 || busy}>
+              {busy ? 'Importing…' : 'Import'}
+            </button>
+          </div>
         </>
       )}
-      {err && <div className="error">{err}</div>}
-      {done && <div className="ok-text">{done}</div>}
-    </div>
+
+      {(err || done) && (
+        <div className="settings-block">
+          {err && <div className="error">{err}</div>}
+          {done && <div className="ok-text">{done}</div>}
+        </div>
+      )}
+    </Group>
   );
 }

@@ -36,6 +36,6 @@ export const DEFAULT_SETTINGS: Settings = {
 
 export const CHARGER_LABELS: Record<ChargerType, string> = {
   home: 'Home',
-  dc_public: 'DC Public',
-  ac_public: 'AC Public'
+  dc_public: 'DC Fast',
+  ac_public: 'Public AC'
 };
